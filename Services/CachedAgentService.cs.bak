@@ -1,0 +1,95 @@
+using Azure.AI.Projects;
+using FoundryAgentApi.Configuration;
+using Microsoft.Extensions.Options;
+using System.Diagnostics;
+
+namespace FoundryAgentApi.Services;
+
+/// <summary>
+/// Agent service that CACHES the agent client to reduce latency.
+/// Provides better performance but may serve stale instructions until cache refresh.
+/// </summary>
+public class CachedAgentService : IAgentService
+{
+    private readonly AIProjectClient _aiProjectClient;
+    private readonly IToolProvider _toolProvider;
+    private readonly AppSettings _appSettings;
+    private readonly ILogger<CachedAgentService> _logger;
+    
+    private AgentClient? _cachedAgentClient;
+    private DateTime _lastRefresh = DateTime.MinValue;
+    private readonly SemaphoreSlim _refreshLock = new(1, 1);
+
+    public CachedAgentService(
+        AIProjectClient aiProjectClient,
+        IToolProvider toolProvider,
+        IOptions<AppSettings> appSettings,
+        ILogger<CachedAgentService> logger)
+    {
+        _aiProjectClient = aiProjectClient;
+        _toolProvider = toolProvider;
+        _appSettings = appSettings.Value;
+        _logger = logger;
+    }
+
+    public async Task<AgentClient> GetAgentClientAsync(CancellationToken cancellationToken = default)
+    {
+        // Check if we need to refresh
+        var refreshInterval = TimeSpan.FromMinutes(
+            _appSettings.AgentCaching?.RefreshIntervalMinutes ?? 30);
+        
+        var needsRefresh = _cachedAgentClient == null || 
+                          DateTime.UtcNow - _lastRefresh > refreshInterval;
+
+        if (needsRefresh)
+        {
+            await RefreshAgentAsync(cancellationToken);
+        }
+
+        return _cachedAgentClient ?? throw new InvalidOperationException("Failed to load agent client");
+    }
+
+    public AIProjectClient GetProjectClient()
+    {
+        return _aiProjectClient;
+    }
+
+    public async Task RefreshAgentAsync(CancellationToken cancellationToken = default)
+    {
+        // Use semaphore to ensure only one refresh happens at a time
+        await _refreshLock.WaitAsync(cancellationToken);
+        try
+        {
+            // Double-check pattern: another thread might have just refreshed
+            var refreshInterval = TimeSpan.FromMinutes(
+                _appSettings.AgentCaching?.RefreshIntervalMinutes ?? 30);
+            
+            if (_cachedAgentClient != null && DateTime.UtcNow - _lastRefresh <= refreshInterval)
+            {
+                _logger.LogDebug("Agent client was recently refreshed by another thread, skipping");
+                return;
+            }
+
+            var sw = Stopwatch.StartNew();
+            var agentName = _appSettings.Azure?.AI?.AgentName 
+                ?? throw new InvalidOperationException("Agent name not configured");
+
+            _logger.LogInformation("Refreshing cached agent client...");
+
+            var agentClient = _aiProjectClient.GetAgentClient();
+
+            _cachedAgentClient = agentClient;
+            _lastRefresh = DateTime.UtcNow;
+
+            sw.Stop();
+            _logger.LogInformation(
+                "Agent client refreshed and cached in {ElapsedMs}ms. Next refresh at {NextRefresh}",
+                sw.ElapsedMilliseconds,
+                _lastRefresh.Add(refreshInterval));
+        }
+        finally
+        {
+            _refreshLock.Release();
+        }
+    }
+}

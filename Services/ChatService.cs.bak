@@ -1,0 +1,157 @@
+using Azure.AI.Projects;
+using FoundryAgentApi.Configuration;
+using FoundryAgentApi.Models;
+using Microsoft.Extensions.Options;
+using System.Diagnostics;
+using System.Text;
+
+namespace FoundryAgentApi.Services;
+
+public interface IChatService
+{
+    Task<ChatResponse> SendMessageAsync(ChatRequest request, CancellationToken cancellationToken = default);
+}
+
+public class ChatService : IChatService
+{
+    private readonly IAgentService _agentService;
+    private readonly AppSettings _appSettings;
+    private readonly ILogger<ChatService> _logger;
+
+    public ChatService(
+        IAgentService agentService,
+        IOptions<AppSettings> appSettings,
+        ILogger<ChatService> logger)
+    {
+        _agentService = agentService;
+        _appSettings = appSettings.Value;
+        _logger = logger;
+    }
+
+    public async Task<ChatResponse> SendMessageAsync(ChatRequest request, CancellationToken cancellationToken = default)
+    {
+        var totalSw = Stopwatch.StartNew();
+        var metrics = new ChatMetrics();
+
+        try
+        {
+            // Step 1: Get Agent Client
+            var agentSw = Stopwatch.StartNew();
+            var agentClient = await _agentService.GetAgentClientAsync(cancellationToken);
+            var projectClient = _agentService.GetProjectClient();
+            metrics.GetAgentMs = agentSw.ElapsedMilliseconds;
+            
+            var agentName = _appSettings.Azure?.AI?.AgentName 
+                ?? throw new InvalidOperationException("Agent name not configured");
+
+            _logger.LogInformation("Sending message to agent '{AgentName}'", agentName);
+
+            // Step 2: Create or get agent
+            var sessionSw = Stopwatch.StartNew();
+            
+            // List agents to find ours
+            var agents = agentClient.GetAgents();
+            Agent? targetAgent = null;
+            
+            await foreach (var agent in agents)
+            {
+                if (agent.Name == agentName)
+                {
+                    targetAgent = agent;
+                    break;
+                }
+            }
+
+            if (targetAgent == null)
+            {
+                throw new InvalidOperationException($"Agent '{agentName}' not found in project");
+            }
+
+            metrics.CreateSessionMs = sessionSw.ElapsedMilliseconds;
+
+            // Step 3: Create thread if needed
+            var conversationSw = Stopwatch.StartNew();
+            AgentThread thread;
+            
+            if (string.IsNullOrEmpty(request.ConversationId))
+            {
+                thread = await agentClient.CreateThreadAsync(cancellationToken);
+                _logger.LogInformation("Created new thread: {ThreadId}", thread.Id);
+                metrics.CreateConversationMs = conversationSw.ElapsedMilliseconds;
+            }
+            else
+            {
+                thread = await agentClient.GetThreadAsync(request.ConversationId, cancellationToken);
+                _logger.LogInformation("Using existing thread: {ThreadId}", thread.Id);
+            }
+
+            // Step 4: Add message to thread
+            await agentClient.CreateMessageAsync(
+                thread.Id,
+                MessageRole.User,
+                request.Message,
+                cancellationToken: cancellationToken);
+
+            // Step 5: Run the agent
+            var firstEventSw = Stopwatch.StartNew();
+            var run = await agentClient.CreateRunAsync(
+                thread.Id,
+                targetAgent.Id,
+                cancellationToken: cancellationToken);
+
+            metrics.FirstStreamEventMs = firstEventSw.ElapsedMilliseconds;
+
+            // Step 6: Wait for completion
+            var firstChunkSw = Stopwatch.StartNew();
+            
+            while (run.Status == RunStatus.Queued || run.Status == RunStatus.InProgress)
+            {
+                await Task.Delay(500, cancellationToken);
+                run = await agentClient.GetRunAsync(thread.Id, run.Id, cancellationToken);
+            }
+
+            if (run.Status == RunStatus.Failed)
+            {
+                throw new InvalidOperationException($"Agent run failed: {run.LastError?.Message}");
+            }
+
+            // Step 7: Get the response messages
+            var messages = agentClient.GetMessages(thread.Id);
+            var response = new StringBuilder();
+            
+            await foreach (var message in messages)
+            {
+                if (message.Role == MessageRole.Assistant && message.CreatedAt > run.CreatedAt)
+                {
+                    foreach (var content in message.ContentItems)
+                    {
+                        if (content is MessageTextContent textContent)
+                        {
+                            response.AppendLine(textContent.Text);
+                        }
+                    }
+                }
+            }
+
+            metrics.FirstTextChunkMs = firstChunkSw.ElapsedMilliseconds;
+            metrics.TotalMs = totalSw.ElapsedMilliseconds;
+            metrics.ToolCalls = run.RequiredActions?.Count ?? 0;
+
+            _logger.LogInformation(
+                "Chat completed - Total: {Total}ms, GetAgent: {GetAgent}ms, FirstChunk: {FirstChunk}ms",
+                metrics.TotalMs, metrics.GetAgentMs, metrics.FirstTextChunkMs);
+
+            return new ChatResponse
+            {
+                ConversationId = thread.Id,
+                Response = response.ToString(),
+                Metrics = metrics
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing chat message");
+            throw;
+        }
+    }
+}

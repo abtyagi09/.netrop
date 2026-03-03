@@ -1,0 +1,24 @@
+using Azure.AI.Projects;
+
+namespace FoundryAgentApi.Services;
+
+/// <summary>
+/// Interface for managing AI agent operations
+/// </summary>
+public interface IAgentService
+{
+    /// <summary>
+    /// Gets the agent client for the configured agent
+    /// </summary>
+    Task<AgentClient> GetAgentClientAsync(CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Gets the AI Project Client
+    /// </summary>
+    AIProjectClient GetProjectClient();
+    
+    /// <summary>
+    /// Forces a refresh of the cached agent (if caching is enabled)
+    /// </summary>
+    Task RefreshAgentAsync(CancellationToken cancellationToken = default);
+}

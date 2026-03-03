@@ -1,0 +1,51 @@
+## ================================
+## Sample Requests for Testing
+## Use with REST Client extension in VS Code
+## or copy to curl/Postman
+## ================================
+
+### Health Check
+GET https://localhost:5001/health
+
+### ================================
+### Send Chat Message (Non-Streaming)
+### ================================
+POST https://localhost:5001/api/chat
+Content-Type: application/json
+
+{
+  "message": "Hello, how are you?",
+  "streamResponse": false
+}
+
+### ================================
+### Send Chat Message with Existing Conversation
+### ================================
+POST https://localhost:5001/api/chat
+Content-Type: application/json
+
+{
+  "conversationId": "your-conversation-id-here",
+  "message": "Tell me more about that",
+  "streamResponse": false
+}
+
+### ================================
+### Stream Chat Message
+### ================================
+POST https://localhost:5001/api/chat/stream
+Content-Type: application/json
+
+{
+  "message": "Tell me a long story about AI"
+}
+
+### ================================
+### Refresh Agent (Force Cache Update)
+### ================================
+POST https://localhost:5001/api/chat/refresh-agent
+
+### ================================
+### Chat Health Check
+### ================================
+GET https://localhost:5001/api/chat/health

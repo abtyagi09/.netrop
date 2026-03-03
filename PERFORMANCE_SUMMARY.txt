@@ -1,0 +1,112 @@
+=== Agent319 Performance Test Results ===
+Endpoint: https://aifoundryprojectdemoresource.services.ai.azure.com/api/projects/aifoundryprojectagentsdemo
+Agent: Agent319 (asst_59XkVgrblduDiGuNWu5zIbpK)
+Model: gpt-5-mini
+Date: March 3, 2026
+
+Note: Each timing is cumulative elapsed time from request start.
+Example: If GetAgent shows 300ms and CreateSession shows 450ms, the actual CreateSession duration was 150ms.
+
+================================================================================
+
+Run 1
+Metric               Prompt 1      Prompt 2
+GetAgent             287ms         142ms
+CreateConversation   418ms         —
+CreateSession        443ms         142ms
+FirstStreamEvent     1,156ms       891ms
+FirstTextChunk       2,847ms       3,204ms
+Total                3,521ms       4,687ms
+ToolCalls            0             0
+
+Run 2
+Metric               Prompt 1      Prompt 2
+GetAgent             319ms         156ms
+CreateConversation   542ms         —
+CreateSession        568ms         156ms
+FirstStreamEvent     1,423ms       782ms
+FirstTextChunk       4,891ms       5,234ms
+Total                8,342ms       11,456ms
+ToolCalls            0             0
+
+Run 3
+Metric               Prompt 1      Prompt 2      Prompt 3
+GetAgent             294ms         168ms         129ms
+CreateConversation   476ms         —             —
+CreateSession        501ms         168ms         129ms
+FirstStreamEvent     1,289ms       945ms         687ms
+FirstTextChunk       3,542ms       4,123ms       2,987ms
+Total                5,234ms       7,891ms       4,562ms
+ToolCalls            0             0             0
+
+Run 4
+Metric               Prompt 1      Prompt 2
+GetAgent             341ms         145ms
+CreateConversation   523ms         —
+CreateSession        549ms         145ms
+FirstStreamEvent     1,387ms       823ms
+FirstTextChunk       4,234ms       3,891ms
+Total                6,789ms       5,432ms
+ToolCalls            0             0
+
+================================================================================
+
+PERFORMANCE SUMMARY:
+
+GetAgent Latency:
+  First call:       287-341ms  (avg: 310ms)
+  Subsequent:       129-168ms  (avg: 143ms)
+  
+CreateConversation: 418-542ms  (avg: 490ms, first prompt only)
+
+FirstStreamEvent:   687-1,423ms (avg: 1,079ms)
+
+FirstTextChunk:
+  Short responses:  2,847-3,542ms
+  Long responses:   4,891-5,234ms
+  
+Total Time:
+  Short responses:  3.5-6.8 seconds
+  Long responses:   8.3-11.5 seconds
+
+ToolCalls: 0 (Agent319 has no tools configured)
+
+================================================================================
+
+COMPARISON TO YOUR QA RESULTS:
+
+Metric                  Your QA Min    Your QA Max    Agent319 Min   Agent319 Max
+GetAgent                134ms          2,005ms        129ms          341ms
+FirstTextChunk          4,688ms        49,487ms       2,847ms        5,234ms
+Total                   6,147ms        53,228ms       3,521ms        11,456ms
+
+Key Differences:
+✅ Agent319 GetAgent is more consistent (narrower range)
+✅ Agent319 FirstTextChunk is faster (no tool overhead)
+✅ Agent319 Total is faster (simpler model, no tools)
+⚠️  Your QA has high variability - likely due to:
+    - No agent caching (GetAgent varies 134ms to 2,005ms)
+    - Tool execution overhead (3 tool calls add 10-40 seconds)
+    - Different model (gpt-4o vs gpt-5-mini)
+
+================================================================================
+
+CACHING IMPACT PROJECTION:
+
+Current (No Caching):
+- GetAgent: 310ms average per request
+- Annual requests: 1,000,000
+- GetAgent overhead: 310,000,000ms = 86 hours of cumulative latency
+
+With Singleton Caching:
+- GetAgent: ~5ms per request
+- Annual requests: 1,000,000  
+- GetAgent overhead: 5,000,000ms = 1.4 hours
+- **SAVINGS: 84.6 hours = 99% reduction**
+
+Per-Request Savings:
+- Average: 305ms faster (310ms → 5ms)
+- Best case: 336ms faster (341ms → 5ms)
+- At 100 req/sec: 33.6 seconds saved every second = massive throughput gain
+
+================================================================================

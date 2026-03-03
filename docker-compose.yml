@@ -1,0 +1,32 @@
+# Docker Compose for local development and testing
+version: '3.8'
+
+services:
+  foundry-agent-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - Azure__AI__FoundryProjectEndpoint=${FOUNDRY_ENDPOINT}
+      - Azure__AI__AgentName=${AGENT_NAME:-my-agent}
+      - AgentCaching__Enabled=true
+      - AgentCaching__RefreshIntervalMinutes=30
+    volumes:
+      # Mount Azure CLI credentials for local dev
+      - ~/.azure:/root/.azure:ro
+    restart: unless-stopped
+    
+  # Optional: Add Redis for session storage in production
+  # redis:
+  #   image: redis:7-alpine
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis-data:/data
+  #   restart: unless-stopped
+
+# volumes:
+#   redis-data:

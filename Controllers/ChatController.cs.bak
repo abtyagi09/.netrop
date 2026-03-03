@@ -1,0 +1,90 @@
+using FoundryAgentApi.Models;
+using FoundryAgentApi.Services;
+using Microsoft.AspNetCore.Mvc;
+using System.Diagnostics;
+
+namespace FoundryAgentApi.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class ChatController : ControllerBase
+{
+    private readonly IChatService _chatService;
+    private readonly IAgentService _agentService;
+    private readonly ILogger<ChatController> _logger;
+
+    public ChatController(
+        IChatService chatService,
+        IAgentService agentService,
+        ILogger<ChatController> logger)
+    {
+        _chatService = chatService;
+        _agentService = agentService;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Send a chat message and get a complete response with metrics
+    /// </summary>
+    [HttpPost]
+    public async Task<ActionResult<ChatResponse>> SendMessage(
+        [FromBody] ChatRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Message))
+        {
+            return BadRequest("Message cannot be empty");
+        }
+
+        try
+        {
+            var response = await _chatService.SendMessageAsync(request, cancellationToken);
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing chat message");
+            return StatusCode(500, "An error occurred processing your message");
+        }
+    }
+
+    /// <summary>
+    /// Force refresh the cached agent (if caching is enabled)
+    /// </summary>
+    [HttpPost("refresh-agent")]
+    public async Task<IActionResult> RefreshAgent(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var sw = Stopwatch.StartNew();
+            await _agentService.RefreshAgentAsync(cancellationToken);
+            sw.Stop();
+
+            _logger.LogInformation("Agent manually refreshed in {ElapsedMs}ms", sw.ElapsedMilliseconds);
+            
+            return Ok(new 
+            { 
+                Message = "Agent refreshed successfully",
+                ElapsedMs = sw.ElapsedMilliseconds
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error refreshing agent");
+            return StatusCode(500, "An error occurred refreshing the agent");
+        }
+    }
+
+    /// <summary>
+    /// Get API health status
+    /// </summary>
+    [HttpGet("health")]
+    public IActionResult Health()
+    {
+        return Ok(new 
+        { 
+            Status = "Healthy",
+            Timestamp = DateTime.UtcNow
+        });
+    }
+}

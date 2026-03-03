@@ -1,0 +1,59 @@
+using Azure.AI.Projects;
+using FoundryAgentApi.Configuration;
+using Microsoft.Extensions.Options;
+using System.Diagnostics;
+
+namespace FoundryAgentApi.Services;
+
+/// <summary>
+/// Agent service that fetches the agent from Foundry on EVERY request.
+/// This ensures you always have the latest instructions but adds latency.
+/// </summary>
+public class NonCachedAgentService : IAgentService
+{
+    private readonly AIProjectClient _aiProjectClient;
+    private readonly IToolProvider _toolProvider;
+    private readonly AppSettings _appSettings;
+    private readonly ILogger<NonCachedAgentService> _logger;
+
+    public NonCachedAgentService(
+        AIProjectClient aiProjectClient,
+        IToolProvider toolProvider,
+        IOptions<AppSettings> appSettings,
+        ILogger<NonCachedAgentService> logger)
+    {
+        _aiProjectClient = aiProjectClient;
+        _toolProvider = toolProvider;
+        _appSettings = appSettings.Value;
+        _logger = logger;
+    }
+
+    public async Task<AgentClient> GetAgentClientAsync(CancellationToken cancellationToken = default)
+    {
+        var sw = Stopwatch.StartNew();
+        
+        var agentName = _appSettings.Azure?.AI?.AgentName 
+            ?? throw new InvalidOperationException("Agent name not configured");
+
+        _logger.LogInformation("Getting agent client for '{AgentName}' from Foundry...", agentName);
+
+        var agentClient = _aiProjectClient.GetAgentClient();
+
+        sw.Stop();
+        _logger.LogInformation("Agent client retrieved in {ElapsedMs}ms", sw.ElapsedMilliseconds);
+
+        return agentClient;
+    }
+
+    public AIProjectClient GetProjectClient()
+    {
+        return _aiProjectClient;
+    }
+
+    public Task RefreshAgentAsync(CancellationToken cancellationToken = default)
+    {
+        // No-op for non-cached service
+        _logger.LogInformation("RefreshAgent called but this service doesn't cache");
+        return Task.CompletedTask;
+    }
+}
